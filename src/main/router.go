@@ -1,96 +1,133 @@
 package main
 
 import (
-	"log"
 	"net/http"
+	"jsons"
+	"fmt"
+	"encoding/xml"
+	"io"
+	"os"
+	"strings"
+	"golang.org/x/net/html"
+	"db"
+	"time"
 	"github.com/gorilla/mux"
 	"routes"
-	"encoding/json"
-	"jsons"
+	"utils"
 	"constants"
-	"db"
-	"fmt"
-	//"time"
-	"time"
+	"log"
 )
 
-const rowsAtATime = 25
-const timeout = 600
-
 func main() {
-	url := constants.InsiderTransactionsUrl+"&issuetickers=AMD&transactiondates=20160221~20170221"
-
-	result := getResult(url)
-	totalRows := result.TotalRows
-	numberOfCalls := totalRows / rowsAtATime
-	transactionCollection := make([]jsons.Transaction, totalRows)
-	for i, t := range jsons.ToTransactions(result.RowList) {
-		transactionCollection[i] = t
-	}
-
-	for i := 1; i < numberOfCalls; i++ {
-		amt := i * 25
-		offset := fmt.Sprintf("&offset=%d", amt)
-		result := getResult(url + offset)
-		for j, t := range jsons.ToTransactions(result.RowList) {
-			index := amt+j
-			transactionCollection[index] = t
-		}
-		time.Sleep(time.Duration(timeout)*time.Millisecond)
-	}
-	amtAlreadyCalled := numberOfCalls * rowsAtATime
-	remainder := totalRows - amtAlreadyCalled
-	if remainder > 0 {
-		offset := fmt.Sprintf("&offset=%d", amtAlreadyCalled)
-		limit := fmt.Sprintf("&limit=%d", remainder)
-		result := getResult(url + offset + limit)
-		for i, t := range jsons.ToTransactions(result.RowList) {
-			index := amtAlreadyCalled+i
-			transactionCollection[index] = t
-		}
-	}
-	fmt.Printf("%+v\n", transactionCollection)
-	session := db.GetSession()
-	db.DeleteAllDocuments(session, constants.TransactionsCollection)
-	db.InsertTransactionCollection(transactionCollection[:], session)
-	docs := db.GetAllDocuments(session, constants.TransactionsCollection)
-	fmt.Println("docs")
-	fmt.Println(docs)
-	session.Close()
-
 	router := mux.NewRouter()
-	routes.People = append(routes.People, routes.Person{ID: "1", Firstname: "Nic",
-		Lastname: "Raboy", Address: &routes.Address{City: "Dublin", State: "CA"}})
-	routes.People = append(routes.People, routes.Person{ID: "2", Firstname: "Maria", Lastname: "Robby"})
-	router.HandleFunc("/transactions", routes.GetTransactions).Methods("GET")
-	router.HandleFunc("/transactions/{tickers}", routes.GetTransactions).Methods("GET")
-	router.HandleFunc("/transactions/{tickers}/{sort:(?:asc|desc)}", routes.GetTransactions).Methods("GET")
+	router.HandleFunc("/token", routes.GetToken).Methods("GET")
+	router.HandleFunc("/last_updated", routes.GetLastUpdated).Methods("GET")
+	router.HandleFunc("/recent", routes.GetRecentFilings).Methods("GET")
 	log.Fatal(http.ListenAndServe(":12345", router))
+
+	resp := getResponse(constants.RecentFilingsUrl + "&start=0&count=100")
+	fmt.Println("Got response from: %v", constants.RecentFilingsUrl)
+	defer resp.Body.Close()
+	recentFilings := jsons.DecodeRecentFilings(resp.Body)
+
+	ownershipDocs := getOwnershipDocs(recentFilings)
+	db.InsertOwnershipDocuments(db.GetSession(), constants.Form4, ownershipDocs)
+
+	lastUpdated := createLastUpdated(recentFilings)
+	db.InsertLastUpdated(db.GetSession(), "last_updated", lastUpdated)
 }
 
-func getResult(url string) jsons.Result {
-	fmt.Println(url)
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		println("reached")
-		log.Fatal("New Request: ", err)
-		return jsons.Result{}
+func getOwnershipDocs(recentFilings jsons.RecentFilings) []jsons.OwnershipDocument {
+	var ownershipDocuments []jsons.OwnershipDocument
+	start := 0
+	count := 100
+	lastUpdated := db.GetLastUpdated(db.GetSession())
+	fmt.Println(lastUpdated)
+	for i, entry := range recentFilings.Entries {
+		if isNewEntry(entry, lastUpdated) {
+			newList := append(ownershipDocuments, getOwnershipDoc(entry))
+			ownershipDocuments = newList
+		} else {
+			fmt.Println("No more new entries")
+			break
+		}
+		if i == 99 {
+			fmt.Println("NEW PAGE")
+			start += 100
+			count += 100
+			params := fmt.Sprintf("&start=%s&count=%s", start, count)
+			resp := getResponse(constants.RecentFilingsUrl + params)
+			recentFilings = jsons.DecodeRecentFilings(resp.Body)
+			newList := append(ownershipDocuments, getOwnershipDocs(recentFilings)...)
+			ownershipDocuments = newList
+			resp.Body.Close()
+		}
 	}
+	return ownershipDocuments
+}
+
+func isNewEntry(entry jsons.Entry, lastUpdated time.Time) bool {
+	entryTime, err := time.Parse(constants.TimeLayout, entry.Updated)
+	utils.HandleError(err)
+	fmt.Println(entryTime.Sub(lastUpdated))
+	sub := entryTime.Sub(lastUpdated)
+	oneDayAgo := time.Now().Sub(time.Now().Add(-24*time.Hour))
+	return sub > 0 && sub <= oneDayAgo
+}
+
+func getOwnershipDoc(entry jsons.Entry) jsons.OwnershipDocument {
+	resp1 := getResponse(entry.Link.Href)
+	ownershipDocumentUrl := constants.BaseUrl + getXmlLink(resp1.Body)
+	resp2 := getResponse(ownershipDocumentUrl)
+	ownershipDocument := jsons.DecodeOwnershipDoc(resp2.Body)
+	//logOwnershipDoc(ownershipDocument)
+	defer resp1.Body.Close()
+	defer resp2.Body.Close()
+	return ownershipDocument
+}
+
+func logOwnershipDoc(doc jsons.OwnershipDocument) {
+	pprint, err := xml.MarshalIndent(doc, "  ", "  ")
+	utils.HandleError(err)
+	os.Stdout.Write(pprint)
+}
+
+func getResponse(url string) *http.Response {
+	req, err := http.NewRequest("GET", url, nil)
+	utils.HandleError(err)
 	client := &http.Client{}
 	resp, err := client.Do(req)
-	if err != nil {
-		println("reached")
-		log.Fatal("Do: ", err)
-		return jsons.Result{}
-	}
-	defer resp.Body.Close()
-	var jsonResult jsons.Response
-	if err := json.NewDecoder(resp.Body).Decode(&jsonResult); err != nil {
-		println("reached")
-		log.Println(err)
-	}
-	fmt.Println(jsonResult)
-	return jsonResult.Result
+	utils.HandleError(err)
+	return resp
 }
 
+func getXmlLink(body io.ReadCloser) string {
+	xmlLink := ""
+	z := html.NewTokenizer(body)
+	for i := 0; i < 2; {
+		tt := z.Next()
+		if tt == html.ErrorToken {
+			break
+		} else if tt == html.StartTagToken {
+			_, v, _ := z.TagAttr()
+			if strings.Contains(string(v), ".xml") {
+				fmt.Println(string(v))
+				if i == 1 {
+					xmlLink = string(v)
+				}
+				i++
+			}
+		}
+	}
+	fmt.Printf("xmlLink: %v", xmlLink)
+	return xmlLink
+}
 
+func createLastUpdated(recentFilings jsons.RecentFilings) jsons.LastUpdated {
+	var lastUpdated jsons.LastUpdated
+	lastUpdated.Title = recentFilings.Title
+	t, err := time.Parse(constants.TimeLayout, recentFilings.Updated) //timezone is EDT
+	utils.HandleError(err)
+	lastUpdated.LastUpdated = t
+	return lastUpdated
+}

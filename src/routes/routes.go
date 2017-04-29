@@ -5,26 +5,19 @@ import (
 	"github.com/gorilla/mux"
 	"encoding/json"
 	"db"
-	"constants"
-	"fmt"
-	"strings"
 )
 
-func GetTransactions(w http.ResponseWriter, req *http.Request) {
-	params := mux.Vars(req)
-	if tickers, ok := params["tickers"]; ok {
-		tickerArray := strings.Split(tickers, ",")
-		for _, t := range tickerArray {
-			fmt.Println(t)
-		}
-	}
-	sort := req.FormValue("sort")
-	dateRange := req.FormValue("daterange")
-	fmt.Println(sort)
-	fmt.Println(dateRange)
+func GetToken(w http.ResponseWriter, req *http.Request) {
+
+}
+
+func GetRecentFilings(w http.ResponseWriter, req *http.Request) {
+
+}
+
+func GetLastUpdated(w http.ResponseWriter, req *http.Request) {
 	session := db.GetSession()
-	json.NewEncoder(w).Encode(db.GetAllDocuments(session, constants.TransactionsCollection))
-	session.Close()
+	json.NewEncoder(w).Encode(db.GetLastUpdated(session))
 }
 
 type Person struct {

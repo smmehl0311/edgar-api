@@ -7,6 +7,7 @@ import (
 	"log"
 	"jsons"
 	"fmt"
+	"utils"
 	"time"
 )
 
@@ -20,10 +21,10 @@ func GetSession() *mgo.Session {
 	return session
 }
 
-func InsertDocuments(session *mgo.Session, collection string, transactions []jsons.Transaction) {
+func InsertOwnershipDocuments(session *mgo.Session, collection string, documents []jsons.OwnershipDocument) {
 	c := session.DB(constants.MongoDb).C(collection)
-	for _, transaction := range transactions {
-		err := c.Insert(transaction)
+	for _, document := range documents {
+		err := c.Insert(document)
 		if err != nil {
 			log.Fatal(err)
 			return
@@ -31,23 +32,37 @@ func InsertDocuments(session *mgo.Session, collection string, transactions []jso
 	}
 }
 
-func InsertTransactionCollection(transactionCollection []jsons.Transaction, session *mgo.Session) {
-	InsertDocuments(session, constants.TransactionsCollection, transactionCollection)
-}
-
-func GetTransactionsByDate(session *mgo.Session, startDate time.Time, endDate time.Time, ticker string) []jsons.Transaction {
-	return nil
-}
-
-func GetAllDocuments(session *mgo.Session, collection string) []jsons.Transaction {
+func InsertLastUpdated(session *mgo.Session, collection string, lastUpdated jsons.LastUpdated) {
 	c := session.DB(constants.MongoDb).C(collection)
-	var transactions []jsons.Transaction
-	err := c.Find(bson.M{}).All(&transactions)
+	c.RemoveAll(nil)
+	err := c.Insert(lastUpdated)
 	if err != nil {
 		log.Fatal(err)
-		return nil
+		return
 	}
-	return transactions
+}
+
+func GetLastUpdated(session *mgo.Session) time.Time {
+	c := session.DB(constants.MongoDb).C(constants.LastUpdated)
+	var lastUpdated jsons.LastUpdated
+	err := c.Find(bson.M{}).One(&lastUpdated)
+	var returnValue time.Time
+	if err != nil {
+		fmt.Println("No record in database")
+		returnValue = time.Now().Add(-25*time.Hour)
+	} else {
+		fmt.Println("reached else")
+		returnValue = lastUpdated.LastUpdated
+	}
+	return returnValue
+}
+
+func GetAllLastUpdated(session *mgo.Session) jsons.LastUpdated {
+	c := session.DB(constants.MongoDb).C(constants.LastUpdated)
+	var lastUpdated jsons.LastUpdated
+	err := c.Find(bson.M{}).All(&lastUpdated)
+	utils.HandleError(err)
+	return lastUpdated
 }
 
 func DeleteAllDocuments(session *mgo.Session, collection string) {

@@ -1,0 +1,19 @@
+<changelist name="unnamed" date="1492802148620" recycled="false">
+  <option name="PATH" value="$PROJECT_DIR$/.idea/shelf/unnamed/shelved.patch" />
+  <option name="DESCRIPTION" value="" />
+  <binary>
+    <option name="BEFORE_PATH" />
+    <option name="AFTER_PATH" value="src/golang.org/x/net/html/testdata/webkit/plain-text-unsafe.dat" />
+    <option name="SHELVED_PATH" value="$PROJECT_DIR$/.idea/shelf/unnamed/plain-text-unsafe.dat" />
+  </binary>
+  <binary>
+    <option name="BEFORE_PATH" value="bin/run project.exe" />
+    <option name="AFTER_PATH" value="bin/run project.exe" />
+    <option name="SHELVED_PATH" value="$PROJECT_DIR$/.idea/shelf/unnamed/run project.exe" />
+  </binary>
+  <binary>
+    <option name="BEFORE_PATH" />
+    <option name="AFTER_PATH" value="src/golang.org/x/net/html/testdata/webkit/pending-spec-changes-plain-text-unsafe.dat" />
+    <option name="SHELVED_PATH" value="$PROJECT_DIR$/.idea/shelf/unnamed/pending-spec-changes-plain-text-unsafe.dat" />
+  </binary>
+</changelist>
